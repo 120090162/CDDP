@@ -26,7 +26,7 @@ class DoubleIntegrator(DynamicalSystem):
 		super().__init__(4, 2)
 		# self.dt = 0.01
 		self.dt = 0.05
-		self.control_bound = np.ones(2) * 100
+		self.control_bound = np.ones(2) * 100 # [100, 100]
 		self.goal = np.zeros(4)
 	def transition(self, x, u):
 		result = np.zeros(4)

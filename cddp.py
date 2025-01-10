@@ -15,8 +15,9 @@ class CDDP:
 		self.u_trajectories = np.zeros((self.system.control_size, self.horizon))
 		self.initial_state = np.copy(initial_state)
 		self.constraints = []
-		self.best_J = 100000000000
-		self.current_J = 0
+		self.best_J = np.inf
+		self.start = True
+		self.max_iter = 30
 		self.Q_UX = np.zeros((self.system.control_size, self.system.state_size, self.horizon))
 		self.Q_UU = np.zeros((self.system.control_size, self.system.control_size, self.horizon))
 		self.Q_U = np.zeros((self.system.control_size, self.horizon))
@@ -35,7 +36,9 @@ class CDDP:
 		x = np.copy(self.initial_state)
 		feasible = False
 		trust_region_scale = 1
-		while not feasible:
+		count = 0
+		while not feasible and count < self.max_iter:
+			count += 1
 			feasible = True
 			current_J = 0
 			x_new_trajectories = np.zeros((self.system.state_size, self.horizon + 1))
@@ -100,23 +103,21 @@ class CDDP:
 				x = self.system.transition(x, u)
 			x_new_trajectories[:, self.horizon] = np.copy(x)
 			current_J += self.system.calculate_final_cost(x)
-		if self.current_J == 0:
+		if self.start:
 			self.x_trajectories = np.copy(x_new_trajectories)
 			self.u_trajectories = np.copy(u_new_trajectories)
 			self.best_J = current_J
-			#self.system.draw_trajectories(self.x_trajectories)
-			#self.system.draw_u_trajectories(self.u_trajectories)
+			self.start = False
 		elif current_J < self.best_J:
 			self.x_trajectories = np.copy(x_new_trajectories)
 			self.u_trajectories = np.copy(u_new_trajectories)
-			self.reg_factor *= 0.95
-			self.reg_factor_u *= 0.95
+			self.reg_factor *= 0.88
+			self.reg_factor_u *= 0.88
 		else:
 			self.best_J = current_J
-			self.reg_factor *= 1.05
-			self.reg_factor_u *= 1.05
-		self.current_J = current_J
-		print("total cost", self.current_J)
+			self.reg_factor *= 1.12
+			self.reg_factor_u *= 1.12
+		print("total cost", current_J)
 
 
 	def backward_pass(self):
@@ -219,28 +220,3 @@ class CDDP:
 			self.Q_UX[:, :, i] = Q_ux
 			self.Q_UU[:, :, i] = Q_uu
 			self.Q_U[:, i] = Q_u
-
-if __name__ == '__main__':
-	system = Car()
-	system.set_cost(np.zeros((4, 4)), 0.05*np.identity(2))
-	Q_f = np.identity(4)
-	Q_f[0, 0] = 50
-	Q_f[1, 1] = 50
-	Q_f[2, 2] = 50
-	Q_f[3, 3] = 10
-	system.set_final_cost(Q_f)
-	system.set_goal(np.array([2, 4, np.pi/2, 0]))
-
-	solver = CDDP(system, np.zeros(4), horizon=100)
-	constraint = CircleConstraintForCar(np.ones(2), 0.5, system)
-	constraint2 = CircleConstraintForCar(np.array([2, 2]), 1.0, system)
-	for i in range(10):
-		solver.backward_pass()
-		solver.forward_pass()
-	solver.add_constraint(constraint)
-	solver.add_constraint(constraint2)
-	system.set_goal(np.array([3, 3, np.pi/2, 0]))
-	for i in range(20):
-		solver.backward_pass()
-		solver.forward_pass()
-	solver.system.draw_trajectories(solver.x_trajectories)

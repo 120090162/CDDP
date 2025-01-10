@@ -22,9 +22,9 @@ if __name__ == '__main__':
 	solver.forward_pass()
 	
 	constraint = CircleConstraintForDoubleIntegrator(np.ones(2), 0.5, system)
-	# constraint2 = CircleConstraintForDoubleIntegrator(np.array([1.5, 2.2]), 0.5, system)
+	constraint2 = CircleConstraintForDoubleIntegrator(np.array([1.5, 2.2]), 0.5, system)
 	solver.add_constraint(constraint)
-	# solver.add_constraint(constraint2)
+	solver.add_constraint(constraint2)
 	system.set_goal(np.array([3, 3, 0, 0]))
 	# for i in range(10):
 	for i in range(30):
