@@ -1,11 +1,7 @@
 import numpy as np
 from numpy.linalg import inv
-import time
 import osqp
-import scipy.sparse as sparse
-
-from systems import DoubleIntegrator, Car
-from constraints import CircleConstraintForDoubleIntegrator, CircleConstraintForCar
+from scipy import sparse
 
 class CDDP:
 	def __init__(self, system, initial_state, horizon=300):
@@ -15,8 +11,7 @@ class CDDP:
 		self.u_trajectories = np.zeros((self.system.control_size, self.horizon))
 		self.initial_state = np.copy(initial_state)
 		self.constraints = []
-		self.best_J = np.inf
-		self.start = True
+		self.is_start = True
 		self.max_iter = 30
 		self.Q_UX = np.zeros((self.system.control_size, self.system.state_size, self.horizon))
 		self.Q_UU = np.zeros((self.system.control_size, self.system.control_size, self.horizon))
@@ -33,10 +28,15 @@ class CDDP:
 		self.constraints.append(constraint)
 	
 	def forward_pass(self):
-		x = np.copy(self.initial_state)
 		feasible = False
 		trust_region_scale = 1
 		count = 0
+		initial_J = 0
+		# calculate initial cost
+		for i in range(self.horizon):
+			initial_J += self.system.calculate_cost(self.x_trajectories[:, i], self.u_trajectories[:, i])
+		initial_J += self.system.calculate_final_cost(self.x_trajectories[:, self.horizon])
+
 		while not feasible and count < self.max_iter:
 			count += 1
 			feasible = True
@@ -50,14 +50,14 @@ class CDDP:
 				x_new_trajectories[:, i] = np.copy(x)
 				Q_ux = self.Q_UX[:, :, i]
 				Q_u = self.Q_U[:, i]
-				P = sparse.csr_matrix(self.Q_UU[:, : , i])
+				P = sparse.csc_matrix(self.Q_UU[:, : , i])
 				q = (Q_ux.dot(delta_x) + Q_u)
-				'''lb = -self.system.control_bound - self.u_trajectories[:, i]
+				'''
+				lb = -self.system.control_bound - self.u_trajectories[:, i]
 				ub = self.system.control_bound - self.u_trajectories[:, i]
 				lb *= trust_region_scale
-				ub *= trust_region_scale'''
-
-				#constraint_A = sparse.csr_matrix(np.identity(self.system.control_size))
+				ub *= trust_region_scale
+				'''
 
 				#initialize contraint matrix and bound
 				constraint_A = np.zeros((self.system.control_size + len(self.constraints), self.system.control_size))
@@ -87,9 +87,10 @@ class CDDP:
 						ub[constraint_index] = -D
 					constraint_index += 1
 
-				constraint_A = sparse.csr_matrix(constraint_A)
+				constraint_A = sparse.csc_matrix(constraint_A)
+				# solve QP
 				prob = osqp.OSQP()
-				prob.setup(P, q, constraint_A, lb, ub, alpha=1.0, verbose=False)
+				prob.setup(P, q, constraint_A, lb, ub, alpha=1.0, verbose=False, warm_start=True)
 				res = prob.solve()
 				if res.info.status != 'solved':
 					feasible = False
@@ -103,55 +104,58 @@ class CDDP:
 				x = self.system.transition(x, u)
 			x_new_trajectories[:, self.horizon] = np.copy(x)
 			current_J += self.system.calculate_final_cost(x)
-		if self.start:
-			self.x_trajectories = np.copy(x_new_trajectories)
-			self.u_trajectories = np.copy(u_new_trajectories)
-			self.best_J = current_J
-			self.start = False
-		elif current_J < self.best_J:
-			self.x_trajectories = np.copy(x_new_trajectories)
-			self.u_trajectories = np.copy(u_new_trajectories)
-			self.reg_factor *= 0.88
-			self.reg_factor_u *= 0.88
+		if feasible:
+			if self.is_start:
+				self.x_trajectories = np.copy(x_new_trajectories)
+				self.u_trajectories = np.copy(u_new_trajectories)
+				self.is_start = False
+			elif current_J < initial_J:
+				self.x_trajectories = np.copy(x_new_trajectories)
+				self.u_trajectories = np.copy(u_new_trajectories)
+				self.reg_factor *= 0.95
+				self.reg_factor_u *= 0.95
+			else:
+				self.reg_factor *= 1.08
+				self.reg_factor_u *= 1.08
 		else:
-			self.best_J = current_J
-			self.reg_factor *= 1.12
-			self.reg_factor_u *= 1.12
+			self.reg_factor *= 1.08
+			self.reg_factor_u *= 1.08
 		print("total cost", current_J)
 
 
 	def backward_pass(self):
-		A = np.copy(self.system.Q_f)
-		b = self.system.Q_f.dot(self.x_trajectories[:, self.horizon] - self.system.goal)
-		for i in range(self.horizon - 1, -1, -1):
+		A = np.copy(self.system.Q_f) # Q_f is diagonal
+		b = self.system.Q_f.dot(self.x_trajectories[:, self.horizon] - self.system.goal) # Q_f * (x - x_goal)
+		for i in range(self.horizon - 1, -1, -1): # horizon - 1, horizon - 2, ..., 0
 			u = self.u_trajectories[:, i]
 			x = self.x_trajectories[:, i]
-			l_xt = self.system.Q.dot(x - self.system.goal)
-			l_ut = self.system.R.dot(u)
-			l_uxt = np.zeros((self.system.control_size, self.system.state_size))
-			l_xxt = np.copy(self.system.Q)
+			l_xt = self.system.Q.dot(x - self.system.goal) # Q * (x - x_goal)
+			l_ut = self.system.R.dot(u) # R * u
+			l_uxt = np.zeros((self.system.control_size, self.system.state_size)) 
+			l_xxt = np.copy(self.system.Q) 
 			l_uut = np.copy(self.system.R)
-			f_x, f_u = self.system.transition_J(x, u)
+			f_x, f_u = self.system.transition_J(x, u) # A, B
 			Q_x = l_xt + (f_x.T).dot(b)
 			Q_u = l_ut + (f_u.T).dot(b)
+			# 略去二阶导数项，类似iLQR
 			Q_xx = l_xxt + f_x.T.dot(A + self.reg_factor * np.identity(self.system.state_size)).dot(f_x)
 			Q_ux = l_uxt + f_u.T.dot(A + self.reg_factor * np.identity(self.system.state_size)).dot(f_x)
 			Q_uu = l_uut + f_u.T.dot(A + self.reg_factor * np.identity(self.system.state_size)).dot(f_u) + self.reg_factor_u * np.identity(self.system.control_size)
 			
-			#identify active constraint
+			#identify active constraint: control limit and state constraint
 			C = np.empty((self.system.control_size + len(self.constraints), self.system.control_size))
 			D = np.empty((self.system.control_size + len(self.constraints), self.system.state_size))
-			index = 0
+			index = 0 #number of active constraint
 			constraint_index = np.zeros((2 * self.system.control_size + len(self.constraints) * self.system.state_size, self.horizon))
-			for j in range(self.system.control_size):
-				if u[j] >= self.system.control_bound[j] - self.active_set_tol:
+			for j in range(self.system.control_size): # control contraint
+				if u[j] >= self.system.control_bound[j] - self.active_set_tol: # upper bound
 					e = np.zeros(self.system.control_size)
 					e[j] = 1
 					C[index, :] = e
 					D[index, :] = np.zeros(self.system.state_size)
 					index += 1
 					constraint_index[j, i] = 1
-				elif u[j] <= -self.system.control_bound[j] + self.active_set_tol:
+				elif u[j] <= -self.system.control_bound[j] + self.active_set_tol: # lower bound
 					e = np.zeros(self.system.control_size)
 					e[j] = -1
 					C[index, :] = e
@@ -174,8 +178,10 @@ class CDDP:
 				K = -inv(Q_uu).dot(Q_ux)
 				k = -inv(Q_uu).dot(Q_u)
 			else:
+				# get active constraint matrix
 				C = C[0:index, :]
 				D = D[0:index, :]
+				# solve KKT equation
 				lambda_temp = C.dot(inv(Q_uu)).dot(C.T)
 				lambda_temp = -inv(lambda_temp).dot(C).dot(inv(Q_uu)).dot(Q_u)
 
@@ -206,17 +212,21 @@ class CDDP:
 						index += 1
 
 				if len(delete_index) < C.shape[0]:
+					# remove inactive constraint
 					C = np.delete(C, delete_index, axis=0)
 					D = np.delete(D, delete_index, axis=0)
+					# solve KKT equation
 					C_star = inv(C.dot(inv(Q_uu)).dot(C.T)).dot(C).dot(inv(Q_uu))
 					H_star = inv(Q_uu).dot(np.identity(self.system.control_size) - C.T.dot(C_star))
 					k = -H_star.dot(Q_u)
 					K = -H_star.dot(Q_ux) + C_star.T.dot(D)
-				else:
+				else: # no active constraint
 					K = -inv(Q_uu).dot(Q_ux)
 					k = -inv(Q_uu).dot(Q_u)
+			# update A, b for backward pass
 			A = Q_xx + K.T.dot(Q_uu).dot(K) + Q_ux.T.dot(K) + K.T.dot(Q_ux)
 			b = Q_x + Q_ux.T.dot(k) + K.T.dot(Q_uu).dot(k) + K.T.dot(Q_u)
+			# update Q_u, Q_ux, Q_uu for forward pass
 			self.Q_UX[:, :, i] = Q_ux
 			self.Q_UU[:, :, i] = Q_uu
 			self.Q_U[:, i] = Q_u

@@ -26,7 +26,6 @@ if __name__ == '__main__':
 	solver.add_constraint(constraint)
 	solver.add_constraint(constraint2)
 	system.set_goal(np.array([3, 3, 0, 0]))
-	# for i in range(10):
 	for i in range(30):
 		solver.backward_pass()
 		solver.forward_pass()
