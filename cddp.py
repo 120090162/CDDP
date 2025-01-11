@@ -61,6 +61,7 @@ class CDDP:
 
 				#initialize contraint matrix and bound
 				constraint_A = np.zeros((self.system.control_size + len(self.constraints), self.system.control_size))
+				# delat_u + u
 				lb = np.zeros(self.system.control_size + len(self.constraints))
 				ub = np.zeros(self.system.control_size + len(self.constraints))
 
@@ -76,11 +77,10 @@ class CDDP:
 				constraint_index = self.system.control_size
 				for constraint in self.constraints:
 					if i <= self.horizon - 2:#current action might cause state constraint violation
-						x_temp = self.system.transition(x, self.u_trajectories[:, i])
+						x_temp = self.system.transition(x, self.u_trajectories[:, i]) # x_{k+1}
+						# D + C * delta_u <= 0
 						D = constraint.evaluate_constraint(x_temp)
-						#print("constraint eval", D, i, x)
 						C = constraint.evaluate_constraint_J(x_temp)
-						#print(C.shape, f_u.shape)
 						C = C.dot(f_u)
 						constraint_A[constraint_index, :] = np.copy(C)
 						lb[constraint_index] = -np.inf #no lower bound
@@ -97,7 +97,8 @@ class CDDP:
 					#print("infeasible, reduce trust region")
 					trust_region_scale *= 0.5
 					break
-				delta_u = res.x[0:self.system.control_size]
+				delta_u = res.x
+				# delta_u = res.x[0:self.system.control_size]
 				u = delta_u + self.u_trajectories[:, i]
 				u_new_trajectories[:, i] = np.copy(u)
 				current_J += self.system.calculate_cost(x, u)
@@ -165,11 +166,9 @@ class CDDP:
 			if i <= self.horizon - 2: #state constraint can be violated
 				for j in range(len(self.constraints)):
 					D_constraint = self.constraints[j].evaluate_constraint(self.x_trajectories[:, i+1])
-					#print("constraint", D_constraint, i)
 					if abs(D_constraint) <= self.active_set_tol:
 						C_constraint = self.constraints[j].evaluate_constraint_J(self.x_trajectories[:, i+1])
 						C[index, :] = C_constraint.dot(f_u)
-						#print(C_constraint.dot(f_u))
 						D[index, :] = -C_constraint.dot(f_x)
 						index = index + 1
 						constraint_index[2 * self.system.control_size + j, i] = 1
