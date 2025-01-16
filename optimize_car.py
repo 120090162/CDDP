@@ -1,5 +1,5 @@
-from systems import DoubleIntegrator, Car
-from constraints import CircleConstraintForDoubleIntegrator, CircleConstraintForCar
+from systems import Car
+from constraints import CircleConstraintForCar
 from cddp import CDDP
 import numpy as np
 

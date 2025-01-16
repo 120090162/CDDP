@@ -229,3 +229,7 @@ class CDDP:
 			self.Q_UX[:, :, i] = Q_ux
 			self.Q_UU[:, :, i] = Q_uu
 			self.Q_U[:, i] = Q_u
+
+class MPC(CDDP):
+	def __init__(self, system, initial_state, horizon=20):
+		super().__init__(system, initial_state, horizon)
