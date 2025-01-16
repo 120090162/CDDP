@@ -1,12 +1,12 @@
-from systems import DoubleIntegrator
-from constraints import CircleConstraintForDoubleIntegrator
+from systems import DoubleIntegrator, Car
+from constraints import CircleConstraintForDoubleIntegrator, CircleConstraintForCar
 from cddp import CDDP
 import numpy as np
 
 
 if __name__ == '__main__':
 	system = DoubleIntegrator()
-	system.set_cost(np.zeros((4, 4)), system.dt*np.identity(2))
+	system.set_cost(np.zeros((4, 4)), system.dt * np.identity(2))
 	Q_f = np.identity(4)
 	Q_f[0, 0] = 50
 	Q_f[1, 1] = 50

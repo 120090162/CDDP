@@ -1,7 +1,7 @@
-# CDDP
+# CI-MPC
 constraint differential dynamical programming. 
 
-Reproduce code for the paper Differential Dynamic Programming with Nonlinear Constraints, **Zhaoming Xie**, C. Karen Liu, and Kris Hauser, in IEEE International Conference on Robotics and Automation (ICRA), 2017.
+Reproduce code for the paper Contact-Implicit Differential Dynamic Programming for Model Predictive Control with Relaxed Complementarity Constraints, **Gijeong Kim**, Dongyun Kang, Joon-Ha Kim and Hae-Won Park.
 
 use OSQP (https://osqp.org/docs/index.html) as QP solver
 
